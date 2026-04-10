@@ -804,12 +804,6 @@ export default function DiaApp() {
     <div style={{ textAlign: "center" }}><div style={{ fontSize: 36, marginBottom: 8 }}>🎯</div><div style={{ color: X.t2, fontFamily: "'Outfit'", fontSize: 13 }}>Carregando perfil...</div></div>
   </div>;
 
-  // Name setup for new users
-  if (!auth.profile.name) {
-    const [n, sN] = [useState("")[0], useState("")[1]];
-    // Can't use hooks conditionally — handle inline
-  }
-
   const tabs = [{ id: "today", i: "⚡", l: "Hoje" }, { id: "tasks", i: "📋", l: "Tarefas" }, { id: "mission", i: "🎯", l: "Missão" }];
 
   return <div style={{ minHeight: "100vh", background: X.bg, fontFamily: "'Outfit',sans-serif", color: X.t, maxWidth: 480, margin: "0 auto", position: "relative", overflow: "hidden" }}>
