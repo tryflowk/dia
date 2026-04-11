@@ -25,6 +25,16 @@ export function useAuth() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Realtime: sync profile changes across devices
+  useEffect(() => {
+    if (!user) return
+    const channel = supabase.channel('profile-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+        (payload) => { if (payload.new) setProfile(payload.new) })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [user?.id])
+
   const loadProfile = async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
     if (data) setProfile(data)
@@ -105,6 +115,42 @@ export function useData(userId) {
   }, [userId])
 
   useEffect(() => { load() }, [load])
+
+  // ── Realtime sync across devices ──
+  useEffect(() => {
+    if (!userId) return
+
+    const channel = supabase.channel('data-sync')
+      // Tasks
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks', filter: `user_id=eq.${userId}` },
+        (payload) => { setTasks(p => p.some(t => t.id === payload.new.id) ? p : [payload.new, ...p]) })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks', filter: `user_id=eq.${userId}` },
+        (payload) => { setTasks(p => p.map(t => t.id === payload.new.id ? payload.new : t)) })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'tasks', filter: `user_id=eq.${userId}` },
+        (payload) => { setTasks(p => p.filter(t => t.id !== payload.old.id)) })
+      // Projects
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'projects', filter: `user_id=eq.${userId}` },
+        (payload) => { setProjects(p => p.some(x => x.id === payload.new.id) ? p : [...p, payload.new]) })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'projects', filter: `user_id=eq.${userId}` },
+        (payload) => { setProjects(p => p.map(x => x.id === payload.new.id ? payload.new : x)) })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'projects', filter: `user_id=eq.${userId}` },
+        (payload) => { setProjects(p => p.filter(x => x.id !== payload.old.id)) })
+      // Daily plans — full reload on any change (plans have nested plan_tasks)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_plans', filter: `user_id=eq.${userId}` },
+        () => { loadPlans() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_plan_tasks' },
+        () => { loadPlans() })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [userId])
+
+  // Separate plan loader for realtime refresh
+  const loadPlans = useCallback(async () => {
+    if (!userId) return
+    const { data } = await supabase.from('daily_plans').select('*, daily_plan_tasks(*)').eq('user_id', userId).order('date', { ascending: false }).limit(60)
+    if (data) setPlans(data.map(p => ({ ...p, plan_tasks: p.daily_plan_tasks || [] })))
+  }, [userId])
 
   // ── Tasks ──
   const addTask = async (task) => {
