@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useAuth, useData } from "./lib/db";
+import { supabase } from "./lib/supabase";
+
+const SUPA_FN = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-calendar`;
 
 /* ═══════════════════════════════════════
    DIA — MVP COMPLETO com Supabase
@@ -356,6 +359,9 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
   const [editTask, sEditTask] = useState(null);
   const [customStart, sCustomStart] = useState(null);
   const [collPlan, sCollPlan] = useState(false);
+  // Calendar events
+  const [calEvents, sCalEvents] = useState([]); const [calOpen, sCalOpen] = useState(false); const [calLoading, sCalLoading] = useState(false); const [calError, sCalError] = useState(null);
+  const calConnected = profile?.google_calendar_connected;
   const bl = useMemo(() => tasks.filter(t => t.status !== "done" && !t.archived_at).sort((a, b) => cp(b) - cp(a)), [tasks]);
 
   const existingPlan = plans.find(p => p.date === targetDate);
@@ -368,8 +374,33 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
         sFrog(f ? f.task_id : null);
       } else { sSel([]); sFrog(null); }
       sStep(1); sQuickTitle(""); sEditTask(null); sCustomStart(null); sCollPlan(false);
+      sCalEvents([]); sCalOpen(false); sCalError(null);
     }
   }, [open]);
+
+  const fetchCalEvents = useCallback(async () => {
+    if (!calConnected) return;
+    sCalLoading(true); sCalError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPA_FN}?action=events&date=${targetDate}`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
+      const d = await res.json();
+      if (d.error) { sCalError(d.error); sCalEvents([]); }
+      else { sCalEvents(d.events || []); sCalOpen(true); }
+    } catch { sCalError("Erro ao buscar eventos"); }
+    finally { sCalLoading(false); }
+  }, [calConnected, targetDate]);
+
+  const importCalEvent = async (ev) => {
+    // Parse duration from event start/end
+    let dur = 30;
+    if (ev.start && ev.end && !ev.allDay) {
+      const diff = (new Date(ev.end) - new Date(ev.start)) / 60000;
+      if (diff > 0 && diff <= 480) dur = Math.round(diff / 15) * 15 || 15;
+    }
+    const newTask = await addTask({ title: ev.title, category: "social", effort_minutes: dur });
+    if (newTask) sSel(p => [...p, newTask.id]);
+  };
 
   const sugg = useMemo(() => {
     const cc = new Set(sel.map(id => tasks.find(t => t.id === id)?.category));
@@ -493,7 +524,34 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
           <button onClick={handleQuickAdd} disabled={!quickTitle.trim() || addingQuick}
             style={{ background: X.ac, border: "none", borderRadius: 8, padding: "0 12px", color: "#fff", fontSize: 14, cursor: "pointer",
               opacity: !quickTitle.trim() || addingQuick ? 0.4 : 1 }}>+</button>
+          {calConnected && <button onClick={() => calOpen ? sCalOpen(false) : fetchCalEvents()} disabled={calLoading}
+            style={{ background: calEvents.length > 0 ? `${X.cy}18` : X.s3, border: `1px solid ${calEvents.length > 0 ? X.cy + "40" : X.brd}`, borderRadius: 8, padding: "0 10px",
+              color: calEvents.length > 0 ? X.cy : X.t3, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0,
+              opacity: calLoading ? .5 : 1 }}>{calLoading ? "..." : "📅"}</button>}
         </div>
+
+        {/* ── CALENDAR EVENTS ── */}
+        {calOpen && calEvents.length > 0 && <div style={{ background: `${X.cy}06`, borderRadius: 10, border: `1px solid ${X.cy}20`, padding: "8px 8px 6px", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: X.cy, fontFamily: "'Outfit'" }}>📅 Agenda ({calEvents.length})</span>
+            <button onClick={() => sCalOpen(false)} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 2, display: "flex" }}><Ic n="x" s={10} /></button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 140, overflow: "auto" }}>
+            {calEvents.map(ev => {
+              const time = ev.allDay ? "dia todo" : (ev.start ? new Date(ev.start).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "");
+              const alreadyAdded = tasks.some(t => t.title === ev.title) && sel.some(id => tasks.find(t => t.id === id)?.title === ev.title);
+              return <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", borderRadius: 6, background: X.card, border: `1px solid ${X.brd}` }}>
+                <span style={{ fontSize: 9, color: X.cy, fontFamily: "'JetBrains Mono'", width: 36, flexShrink: 0 }}>{time}</span>
+                <span style={{ flex: 1, fontSize: 11, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</span>
+                {!alreadyAdded && <button onClick={() => importCalEvent(ev)}
+                  style={{ background: `${X.cy}15`, border: `1px solid ${X.cy}30`, borderRadius: 5, padding: "2px 8px", cursor: "pointer",
+                    fontSize: 9, fontWeight: 600, fontFamily: "'Outfit'", color: X.cy }}>+ Plano</button>}
+                {alreadyAdded && <span style={{ fontSize: 8, color: X.g }}>✓</span>}
+              </div>;
+            })}
+          </div>
+        </div>}
+        {calOpen && calError && <div style={{ fontSize: 10, color: X.r, fontFamily: "'Outfit'", marginBottom: 8, padding: "4px 8px", background: `${X.r}08`, borderRadius: 6 }}>⚠ {calError}</div>}
 
         {/* ── PLANNED TASKS PANEL ── */}
         {selT.length > 0 && <div style={{ background: `${X.s2}80`, borderRadius: 12, border: `1px solid ${X.ac}20`, padding: "8px 8px 6px", marginBottom: 10 }}>
@@ -900,15 +958,52 @@ function TabMission({ profile, data }) {
 }
 
 // ── SETTINGS ──
-function Sett({ open, onClose, profile, onSave, onLogout }) {
+function Sett({ open, onClose, profile, onSave, onLogout, user, setProfile }) {
   const [n, sN] = useState(""); const [pt, sPt] = useState("21:00"); const [st, sSt] = useState("07:00"); const [saving, sSaving] = useState(false);
+  const [calLoading, sCalLoading] = useState(false);
   useEffect(() => { if (profile && open) { sN(profile.name || ""); sPt(profile.daily_plan_time || "21:00"); sSt(profile.day_start_time || "07:00"); } }, [profile, open]);
+
+  const connectCal = async () => {
+    sCalLoading(true);
+    try {
+      const redirectUri = `${window.location.origin}${window.location.pathname}`;
+      const res = await fetch(`${SUPA_FN}?action=auth-url&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(user?.id || "")}`);
+      const d = await res.json();
+      if (d.url) window.location.href = d.url;
+      else sCalLoading(false);
+    } catch { sCalLoading(false); }
+  };
+
+  const disconnectCal = async () => {
+    sCalLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      await fetch(`${SUPA_FN}?action=disconnect`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
+      setProfile(p => p ? { ...p, google_calendar_connected: false, google_calendar_refresh_token: null } : p);
+    } catch {} finally { sCalLoading(false); }
+  };
+
   return <Modal open={open} onClose={onClose} title="Configurações" w={350} ch={
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <Inp label="Nome" value={n} onChange={sN} />
       <Inp label="Lembrete de planejamento" type="time" value={pt} onChange={sPt} />
       <Inp label="Início do dia" type="time" value={st} onChange={sSt} />
       <Btn onClick={async () => { sSaving(true); await onSave({ name: n, daily_plan_time: pt, day_start_time: st }); sSaving(false); onClose(); }} full ch="Salvar" loading={saving} />
+      <hr style={{ border: "none", borderTop: `1px solid ${X.brd}`, margin: "2px 0" }} />
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 600, color: X.t3, fontFamily: "'Outfit'", textTransform: "uppercase", letterSpacing: .5, marginBottom: 6, display: "block" }}>Google Calendar</label>
+        {profile?.google_calendar_connected
+          ? <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: X.g }} />
+                <span style={{ fontSize: 12, color: X.g, fontFamily: "'Outfit'", fontWeight: 600 }}>Conectado</span>
+              </div>
+              <Btn v="danger" sm onClick={disconnectCal} ch="Desconectar" loading={calLoading} />
+            </div>
+          : <Btn v="secondary" full onClick={connectCal} loading={calLoading}
+              ch={<span style={{ display: "flex", alignItems: "center", gap: 6 }}>📅 Conectar Google Calendar</span>} />
+        }
+      </div>
       <hr style={{ border: "none", borderTop: `1px solid ${X.brd}`, margin: "2px 0" }} />
       <Btn v="danger" onClick={onLogout} icon="logout" full ch="Sair" />
     </div>
@@ -926,6 +1021,30 @@ export default function DiaApp() {
 
   useEffect(() => { if (confetti) { const t = setTimeout(() => sConfetti(false), 3000); return () => clearTimeout(t); } }, [confetti]);
   const tst = (m, t = "success") => sToast({ msg: m, type: t });
+
+  // ── Google Calendar OAuth callback handler ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state"); // state = userId
+    if (code && state) {
+      // Clean URL immediately
+      window.history.replaceState({}, "", window.location.pathname);
+      // Exchange code for tokens via edge function
+      const redirectUri = `${window.location.origin}${window.location.pathname}`;
+      fetch(`${SUPA_FN}?action=callback&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(redirectUri)}&user_id=${encodeURIComponent(state)}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            auth.setProfile(p => p ? { ...p, google_calendar_connected: true } : p);
+            sToast({ msg: "Google Calendar conectado! 📅", type: "success" });
+          } else {
+            sToast({ msg: "Erro ao conectar: " + (d.error || "desconhecido"), type: "error" });
+          }
+        })
+        .catch(() => sToast({ msg: "Erro ao conectar Google Calendar", type: "error" }));
+    }
+  }, []);
 
   // Loading
   if (auth.loading) return <div style={{ minHeight: "100vh", background: X.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -947,7 +1066,7 @@ export default function DiaApp() {
     <Confetti show={confetti} />
     {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => sToast(null)} />}
 
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", borderBottom: `1px solid ${X.brd}`,
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", paddingTop: "calc(env(safe-area-inset-top, 0px) + 9px)", borderBottom: `1px solid ${X.brd}`,
       background: `${X.s1}ee`, backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 100 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
         <span style={{ fontSize: 15 }}>🎯</span>
@@ -972,6 +1091,6 @@ export default function DiaApp() {
       ))}
     </div>
 
-    <Sett open={sett} onClose={() => sSett(false)} profile={auth.profile} onSave={auth.updateProfile} onLogout={auth.signOut} />
+    <Sett open={sett} onClose={() => sSett(false)} profile={auth.profile} onSave={auth.updateProfile} onLogout={auth.signOut} user={auth.user} setProfile={auth.setProfile} />
   </div>;
 }
