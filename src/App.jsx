@@ -348,14 +348,16 @@ function TC({ task, projects, onEdit, onDelete, onStatus, compact, isFrog, showF
 }
 
 // ── PLANNING MODAL ──
+const fmtDur = d => d >= 60 ? `${Math.floor(d / 60)}h${d % 60 || ""}` : `${d}m`;
+
 function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, addTask, updateTask, updateProfile, profile }) {
   const [sel, sSel] = useState([]); const [frog, sFrog] = useState(null); const [step, sStep] = useState(1); const [dragI, sDragI] = useState(null); const [saving, sSaving] = useState(false);
   const [quickTitle, sQuickTitle] = useState(""); const [addingQuick, sAddingQuick] = useState(false);
   const [editTask, sEditTask] = useState(null);
   const [customStart, sCustomStart] = useState(null);
+  const [collPlan, sCollPlan] = useState(false);
   const bl = useMemo(() => tasks.filter(t => t.status !== "done" && !t.archived_at).sort((a, b) => cp(b) - cp(a)), [tasks]);
 
-  // If editing existing plan, pre-select its tasks
   const existingPlan = plans.find(p => p.date === targetDate);
   useEffect(() => {
     if (open) {
@@ -364,9 +366,8 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
         sSel(pts.map(pt => pt.task_id));
         const f = pts.find(pt => pt.is_frog);
         sFrog(f ? f.task_id : null);
-        sStep(1);
-      } else { sSel([]); sFrog(null); sStep(1); }
-      sQuickTitle(""); sEditTask(null); sCustomStart(null);
+      } else { sSel([]); sFrog(null); }
+      sStep(1); sQuickTitle(""); sEditTask(null); sCustomStart(null); sCollPlan(false);
     }
   }, [open]);
 
@@ -406,9 +407,7 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
     }
     if (newIdx !== t.curIdx) {
       const a = [...sel]; const [it] = a.splice(t.curIdx, 1); a.splice(newIdx, 0, it);
-      sSel(a);
-      t.curIdx = newIdx;
-      // Recalc rects after reorder
+      sSel(a); t.curIdx = newIdx;
       requestAnimationFrame(() => {
         const items = listRef.current?.children;
         if (items) t.heights = Array.from(items).map(el => el.getBoundingClientRect());
@@ -424,21 +423,18 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
     sAddingQuick(true);
     const newTask = await addTask({ title, category: "brain_out", effort_minutes: 30 });
     if (newTask) sSel(p => [...p, newTask.id]);
-    sQuickTitle("");
-    sAddingQuick(false);
+    sQuickTitle(""); sAddingQuick(false);
   };
 
-  // Time slot calculations
+  // Time slots
   const startTime = customStart || profile?.day_start_time || "07:00";
   const timeSlots = useMemo(() => {
     const [h, m] = startTime.split(":").map(Number);
     let mins = h * 60 + m;
     return selT.map(t => {
-      const slotH = Math.floor(mins / 60) % 24;
-      const slotM = mins % 60;
+      const slotH = Math.floor(mins / 60) % 24; const slotM = mins % 60;
       const label = `${String(slotH).padStart(2, "0")}:${String(slotM).padStart(2, "0")}`;
-      const dur = t.effort_minutes || 30;
-      mins += dur;
+      const dur = t.effort_minutes || 30; mins += dur;
       return { label, dur };
     });
   }, [selT, startTime]);
@@ -456,26 +452,30 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
   };
 
   const handleEditTask = async (id, f) => { await updateTask(id, f); };
+  const projTag = t => { const p = projects?.find(p => p.id === t.project_id); return p ? <Tag ch={p.name} color={p.color} /> : null; };
 
-  const Row = ({ t, checked }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 9px", borderRadius: 8,
-      background: checked ? X.acG : "transparent", border: `1px solid ${checked ? X.ac + "35" : "transparent"}`, transition: "all .1s" }}>
-      <div onClick={() => tog(t.id)} style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, cursor: "pointer", minWidth: 0 }}>
-        <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? X.ac : X.brd}`, background: checked ? X.ac : "transparent",
-          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{checked && <Ic n="check" s={9} c="#fff" />}</div>
-        <span style={{ flex: 1, fontSize: 12, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+  // Source row (for suggestions + backlog)
+  const SrcRow = ({ t }) => {
+    const checked = sel.includes(t.id);
+    return <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 8px", borderRadius: 8,
+      background: checked ? X.acG : "transparent", border: `1px solid ${checked ? X.ac + "20" : "transparent"}`, transition: "all .1s" }}>
+      <div onClick={() => tog(t.id)} style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, cursor: "pointer", minWidth: 0 }}>
+        <div style={{ width: 15, height: 15, borderRadius: 4, border: `2px solid ${checked ? X.ac : X.brd}`, background: checked ? X.ac : "transparent",
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{checked && <Ic n="check" s={8} c="#fff" />}</div>
+        <span style={{ flex: 1, fontSize: 11, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
       </div>
+      {projTag(t)}
       <Tag ch={CM[t.category]?.icon} color={CM[t.category]?.color} />
-      <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'", minWidth: 22, textAlign: "right" }}>P{cp(t)}</span>
       <button onClick={e => { e.stopPropagation(); sEditTask(t); }}
-        style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 3, borderRadius: 4, display: "flex", flexShrink: 0 }}><Ic n="edit" s={11} /></button>
-    </div>
-  );
+        style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 2, borderRadius: 4, display: "flex", flexShrink: 0 }}><Ic n="edit" s={10} /></button>
+    </div>;
+  };
 
   return <><Modal open={open} onClose={onClose} title={`${existingPlan ? "Editar" : "Planejar"} ${fd(targetDate)}`} ch={
     <div>
-      <div style={{ display: "flex", gap: 2, marginBottom: 14 }}>
-        {["Selecionar", "Horários & 🐸", "Confirmar"].map((s, i) => (
+      {/* Step tabs */}
+      <div style={{ display: "flex", gap: 2, marginBottom: 12 }}>
+        {["Planejar", "Confirmar"].map((s, i) => (
           <div key={i} style={{ flex: 1, textAlign: "center", padding: "5px 0", borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: "'Outfit'",
             background: step === i + 1 ? X.acG : "transparent", color: step === i + 1 ? X.ac : X.t3,
             borderBottom: step === i + 1 ? `2px solid ${X.ac}` : "2px solid transparent" }}>{s}</div>
@@ -483,77 +483,79 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
       </div>
 
       {step === 1 && <>
+        {/* Quick-add */}
         <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
           <input value={quickTitle} onChange={e => sQuickTitle(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleQuickAdd()}
-            placeholder="+ Adicionar tarefa rápida..."
-            style={{ flex: 1, background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 8, padding: "8px 10px", color: X.t, fontSize: 12,
+            placeholder="+ Tarefa rápida..."
+            style={{ flex: 1, background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 8, padding: "7px 10px", color: X.t, fontSize: 12,
               fontFamily: "'Outfit'", outline: "none" }} />
           <button onClick={handleQuickAdd} disabled={!quickTitle.trim() || addingQuick}
             style={{ background: X.ac, border: "none", borderRadius: 8, padding: "0 12px", color: "#fff", fontSize: 14, cursor: "pointer",
               opacity: !quickTitle.trim() || addingQuick ? 0.4 : 1 }}>+</button>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <span style={{ fontSize: 11, color: X.t2, fontFamily: "'Outfit'" }}>{sel.length} selecionada{sel.length !== 1 && "s"}</span>
-          <div style={{ display: "flex", gap: 2 }}>
-            {CATS.map(c => <div key={c.id} style={{ width: 18, height: 18, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9,
-              background: cc.has(c.id) ? `${c.color}20` : X.bg, border: `1px solid ${cc.has(c.id) ? c.color + "40" : X.brd}`, opacity: cc.has(c.id) ? 1 : .3 }}>{c.icon}</div>)}
+
+        {/* ── PLANNED TASKS PANEL ── */}
+        {selT.length > 0 && <div style={{ background: `${X.s2}80`, borderRadius: 12, border: `1px solid ${X.ac}20`, padding: "8px 8px 6px", marginBottom: 10 }}>
+          {/* Panel header */}
+          <div onClick={() => sCollPlan(!collPlan)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: collPlan ? 0 : 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: X.ac, fontFamily: "'Outfit'" }}>Meu plano ({selT.length})</span>
+              <div style={{ display: "flex", gap: 2 }}>
+                {CATS.map(c => <div key={c.id} style={{ width: 14, height: 14, borderRadius: 3, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7,
+                  background: cc.has(c.id) ? `${c.color}25` : "transparent", border: `1px solid ${cc.has(c.id) ? c.color + "50" : "transparent"}`, opacity: cc.has(c.id) ? 1 : .2 }}>{c.icon}</div>)}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <input type="time" value={startTime} onClick={e => e.stopPropagation()} onChange={e => sCustomStart(e.target.value)} step="1800"
+                  style={{ background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 5, padding: "2px 4px", color: X.ac, fontSize: 10,
+                    fontFamily: "'JetBrains Mono'", outline: "none", width: 62 }} />
+                <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'" }}>→{endLabel}</span>
+              </div>
+              <span style={{ fontSize: 12, color: X.t3, transform: collPlan ? "rotate(-90deg)" : "rotate(0)", transition: "transform .15s" }}>▾</span>
+            </div>
           </div>
-        </div>
+          {/* Panel body - draggable list */}
+          {!collPlan && <div ref={listRef} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 240, overflow: "auto" }}>
+            {selT.map((t, i) => <div key={t.id} draggable onDragStart={() => sDragI(i)} onDragOver={e => e.preventDefault()} onDrop={() => drop(i)}
+              style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 7px", borderRadius: 8, background: dragI === i ? X.s3 : X.card,
+                border: `1px solid ${frog === t.id ? X.y + "40" : X.brd}`, cursor: "grab", transition: "background .1s", touchAction: "none" }}>
+              <span onTouchStart={e => handleTouchStart(i, e)} style={{ color: X.t3, display: "flex", padding: 3, touchAction: "none" }}><Ic n="grip" s={12} c={X.t3} /></span>
+              <span style={{ fontSize: 10, color: X.ac, fontFamily: "'JetBrains Mono'", width: 34, flexShrink: 0 }}>{timeSlots[i]?.label}</span>
+              <span style={{ flex: 1, fontSize: 11, fontWeight: 500, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+              {projTag(t)}
+              <span style={{ fontSize: 8, color: X.t3, fontFamily: "'JetBrains Mono'", flexShrink: 0 }}>{fmtDur(timeSlots[i]?.dur || 30)}</span>
+              <Tag ch={CM[t.category]?.icon} color={CM[t.category]?.color} />
+              <button onClick={() => sEditTask(t)} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 2, borderRadius: 4, display: "flex" }}><Ic n="edit" s={10} /></button>
+              <button onClick={() => sFrog(frog === t.id ? null : t.id)}
+                style={{ background: frog === t.id ? `${X.y}18` : "none", border: `1.5px solid ${frog === t.id ? X.y : X.brd}`, borderRadius: 5, padding: "1px 5px", cursor: "pointer", fontSize: 11 }}>🐸</button>
+              <button onClick={() => tog(t.id)}
+                style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 2, borderRadius: 4, display: "flex", flexShrink: 0 }}><Ic n="x" s={10} /></button>
+            </div>)}
+          </div>}
+        </div>}
+
+        {/* ── SUGGESTIONS ── */}
         {sugg.length > 0 && <>
-          <div style={{ fontSize: 10, fontWeight: 700, color: X.ac, fontFamily: "'Outfit'", marginBottom: 4 }}>💡 Sugestões</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 8 }}>{sugg.map(t => <Row key={t.id} t={t} checked={sel.includes(t.id)} />)}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: X.ac, fontFamily: "'Outfit'", marginBottom: 3 }}>💡 Sugestões</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 8 }}>{sugg.map(t => <SrcRow key={t.id} t={t} />)}</div>
         </>}
-        <div style={{ fontSize: 10, fontWeight: 700, color: X.t3, fontFamily: "'Outfit'", marginBottom: 4 }}>Backlog ({bl.length})</div>
-        <div style={{ maxHeight: 190, overflow: "auto", display: "flex", flexDirection: "column", gap: 2 }}>{bl.map(t => <Row key={t.id} t={t} checked={sel.includes(t.id)} />)}</div>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12, gap: 8 }}>
+
+        {/* ── BACKLOG ── */}
+        <div style={{ fontSize: 10, fontWeight: 700, color: X.t3, fontFamily: "'Outfit'", marginBottom: 3 }}>Backlog ({bl.filter(t => !sel.includes(t.id)).length})</div>
+        <div style={{ maxHeight: selT.length > 3 ? 140 : 200, overflow: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+          {bl.filter(t => !sel.includes(t.id)).map(t => <SrcRow key={t.id} t={t} />)}
+        </div>
+
+        {/* Footer */}
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, gap: 8 }}>
           <Btn v="secondary" onClick={onClose} ch="Cancelar" sm />
-          <Btn onClick={() => sStep(2)} dis={!sel.length} ch={`Próximo (${sel.length})`} sm />
+          <Btn onClick={() => sStep(2)} dis={!sel.length} ch={`Confirmar (${sel.length})`} sm />
         </div>
       </>}
 
       {step === 2 && <>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 10px" }}>
-          <p style={{ fontSize: 11, color: X.ac, fontFamily: "'Outfit'", margin: 0 }}>Arraste · toque 🐸 · edite ✏️</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ fontSize: 9, color: X.t3, fontFamily: "'Outfit'" }}>Início:</span>
-            <input type="time" value={startTime} onChange={e => sCustomStart(e.target.value)} step="1800"
-              style={{ background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 6, padding: "3px 6px", color: X.ac, fontSize: 11,
-                fontFamily: "'JetBrains Mono'", outline: "none", width: 70 }} />
-            <span style={{ fontSize: 10, color: X.t3, fontFamily: "'JetBrains Mono'" }}>→ {endLabel}</span>
-          </div>
-        </div>
-        <div ref={listRef} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {selT.map((t, i) => <div key={t.id} draggable onDragStart={() => sDragI(i)} onDragOver={e => e.preventDefault()} onDrop={() => drop(i)}
-            style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 10px", borderRadius: 9, background: dragI === i ? X.s3 : X.card,
-              border: `1px solid ${frog === t.id ? X.y + "45" : X.brd}`, cursor: "grab", transition: "background .1s", touchAction: "none" }}>
-            <span onTouchStart={e => handleTouchStart(i, e)} style={{ color: X.t3, display: "flex", padding: 4, touchAction: "none" }}><Ic n="grip" s={14} c={X.t3} /></span>
-            <span style={{ fontSize: 10, color: X.ac, fontFamily: "'JetBrains Mono'", width: 36, flexShrink: 0 }}>{timeSlots[i]?.label}</span>
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-            <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'", flexShrink: 0 }}>{timeSlots[i]?.dur >= 60 ? `${Math.floor(timeSlots[i].dur / 60)}h${timeSlots[i].dur % 60 ? timeSlots[i].dur % 60 : ""}` : `${timeSlots[i]?.dur}m`}</span>
-            <Tag ch={CM[t.category]?.icon} color={CM[t.category]?.color} />
-            <button onClick={() => sEditTask(t)} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 3, borderRadius: 4, display: "flex" }}><Ic n="edit" s={11} /></button>
-            <button onClick={() => sFrog(frog === t.id ? null : t.id)}
-              style={{ background: frog === t.id ? `${X.y}18` : "none", border: `1.5px solid ${frog === t.id ? X.y : X.brd}`, borderRadius: 6, padding: "2px 6px", cursor: "pointer", fontSize: 13 }}>🐸</button>
-          </div>)}
-        </div>
-        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-          <input value={quickTitle} onChange={e => sQuickTitle(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleQuickAdd()}
-            placeholder="+ Tarefa rápida aqui também..."
-            style={{ flex: 1, background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 8, padding: "7px 10px", color: X.t, fontSize: 11,
-              fontFamily: "'Outfit'", outline: "none" }} />
-          <button onClick={handleQuickAdd} disabled={!quickTitle.trim() || addingQuick}
-            style={{ background: X.ac, border: "none", borderRadius: 8, padding: "0 10px", color: "#fff", fontSize: 13, cursor: "pointer",
-              opacity: !quickTitle.trim() || addingQuick ? 0.4 : 1 }}>+</button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
-          <Btn v="ghost" onClick={() => sStep(1)} ch="← Voltar" sm />
-          <Btn onClick={() => sStep(3)} ch="Próximo" sm />
-        </div>
-      </>}
-
-      {step === 3 && <>
         <div style={{ background: X.bg, borderRadius: 12, padding: 14, marginBottom: 12, border: `1px solid ${X.brd}` }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11, color: X.t2, fontFamily: "'Outfit'" }}>
             <div>📋 {selT.length} tarefa{selT.length !== 1 && "s"}</div>
@@ -562,18 +564,19 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
             <div>📊 {cc.size}/6 categorias</div>
           </div>
         </div>
-        <div style={{ maxHeight: 150, overflow: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
+        <div style={{ maxHeight: 180, overflow: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
           {selT.map((t, i) => (
             <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 6, background: X.card, fontSize: 11, fontFamily: "'Outfit'" }}>
               <span style={{ color: X.ac, fontFamily: "'JetBrains Mono'", fontSize: 10, width: 36 }}>{timeSlots[i]?.label}</span>
               <span style={{ flex: 1, color: X.t, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+              {projTag(t)}
               {t.id === frog && <span style={{ fontSize: 11 }}>🐸</span>}
             </div>
           ))}
         </div>
         {cc.size === 6 && <div style={{ background: `${X.g}08`, border: `1px solid ${X.g}20`, borderRadius: 8, padding: "7px 12px", marginBottom: 10, fontSize: 11, color: X.g, fontFamily: "'Outfit'", fontWeight: 600 }}>⭐ 6/6 categorias! +1.0 bônus se completar tudo</div>}
         <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <Btn v="ghost" onClick={() => sStep(2)} ch="← Voltar" sm />
+          <Btn v="ghost" onClick={() => sStep(1)} ch="← Voltar" sm />
           <Btn onClick={save} icon="check" ch={existingPlan ? "Salvar alterações" : "Salvar plano"} sm loading={saving} />
         </div>
       </>}
