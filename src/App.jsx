@@ -259,7 +259,7 @@ function AuthScreen({ onAuth }) {
 function TaskForm({ open, onClose, onSave, task, projects, loading: ld }) {
   const blank = { title: "", description: "", category: "brain_out", urgency: 3, importance: 3, tediousness: 1, effort_minutes: 30, project_id: null };
   const [f, sF] = useState(blank);
-  useEffect(() => { if (open) sF(task ? { title: task.title || "", description: task.description || "", category: task.category || "brain_out", urgency: task.urgency || 3, importance: task.importance || 3, tediousness: task.tediousness || 1, effort_minutes: task.effort_minutes || 30, project_id: task.project_id || "" } : blank); }, [task, open]);
+  useEffect(() => { if (open) sF(task ? { title: task.title || "", description: task.description || "", category: task.category || "brain_out", urgency: task.urgency || 3, importance: task.importance || 3, tediousness: task.tediousness || 1, effort_minutes: task.effort_minutes || 30, project_id: task.project_id || null } : blank); }, [task, open]);
   return <Modal open={open} onClose={onClose} title={task ? "Editar Tarefa" : "Nova Tarefa"} ch={
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <Inp label="Título" value={f.title} onChange={v => sF(p => ({ ...p, title: v }))} ph="O que precisa ser feito?" />
@@ -287,7 +287,7 @@ function TaskForm({ open, onClose, onSave, task, projects, loading: ld }) {
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
         <Btn v="secondary" onClick={onClose} ch="Cancelar" />
-        <Btn onClick={() => { if (f.title.trim()) { onSave({ ...f, title: f.title.trim() }); onClose(); } }} dis={!f.title.trim()} ch={task ? "Salvar" : "Criar"} loading={ld} />
+        <Btn onClick={async () => { if (f.title.trim()) { await onSave({ ...f, title: f.title.trim(), project_id: f.project_id || null }); onClose(); } }} dis={!f.title.trim()} ch={task ? "Salvar" : "Criar"} loading={ld} />
       </div>
     </div>
   } />;
@@ -347,9 +347,11 @@ function TC({ task, projects, onEdit, onDelete, onStatus, compact, isFrog, showF
 }
 
 // ── PLANNING MODAL ──
-function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, addTask, profile }) {
+function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, addTask, updateTask, profile }) {
   const [sel, sSel] = useState([]); const [frog, sFrog] = useState(null); const [step, sStep] = useState(1); const [dragI, sDragI] = useState(null); const [saving, sSaving] = useState(false);
   const [quickTitle, sQuickTitle] = useState(""); const [addingQuick, sAddingQuick] = useState(false);
+  const [editTask, sEditTask] = useState(null);
+  const [customStart, sCustomStart] = useState(null);
   const bl = useMemo(() => tasks.filter(t => t.status !== "done" && !t.archived_at).sort((a, b) => cp(b) - cp(a)), [tasks]);
 
   // If editing existing plan, pre-select its tasks
@@ -363,7 +365,7 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
         sFrog(f ? f.task_id : null);
         sStep(1);
       } else { sSel([]); sFrog(null); sStep(1); }
-      sQuickTitle("");
+      sQuickTitle(""); sEditTask(null); sCustomStart(null);
     }
   }, [open]);
 
@@ -391,7 +393,7 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
   };
 
   // Time slot calculations
-  const startTime = profile?.day_start_time || "07:00";
+  const startTime = customStart || profile?.day_start_time || "07:00";
   const timeSlots = useMemo(() => {
     const [h, m] = startTime.split(":").map(Number);
     let mins = h * 60 + m;
@@ -412,18 +414,24 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
 
   const save = async () => { sSaving(true); await onSave(targetDate, sel, frog); sSaving(false); onClose(); };
 
+  const handleEditTask = async (id, f) => { await updateTask(id, f); };
+
   const Row = ({ t, checked }) => (
-    <div onClick={() => tog(t.id)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 9px", borderRadius: 8, cursor: "pointer",
+    <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 9px", borderRadius: 8,
       background: checked ? X.acG : "transparent", border: `1px solid ${checked ? X.ac + "35" : "transparent"}`, transition: "all .1s" }}>
-      <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? X.ac : X.brd}`, background: checked ? X.ac : "transparent",
-        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{checked && <Ic n="check" s={9} c="#fff" />}</div>
-      <span style={{ flex: 1, fontSize: 12, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+      <div onClick={() => tog(t.id)} style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, cursor: "pointer", minWidth: 0 }}>
+        <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? X.ac : X.brd}`, background: checked ? X.ac : "transparent",
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{checked && <Ic n="check" s={9} c="#fff" />}</div>
+        <span style={{ flex: 1, fontSize: 12, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+      </div>
       <Tag ch={CM[t.category]?.icon} color={CM[t.category]?.color} />
       <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'", minWidth: 22, textAlign: "right" }}>P{cp(t)}</span>
+      <button onClick={e => { e.stopPropagation(); sEditTask(t); }}
+        style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 3, borderRadius: 4, display: "flex", flexShrink: 0 }}><Ic n="edit" s={11} /></button>
     </div>
   );
 
-  return <Modal open={open} onClose={onClose} title={`${existingPlan ? "Editar" : "Planejar"} ${fd(targetDate)}`} ch={
+  return <><Modal open={open} onClose={onClose} title={`${existingPlan ? "Editar" : "Planejar"} ${fd(targetDate)}`} ch={
     <div>
       <div style={{ display: "flex", gap: 2, marginBottom: 14 }}>
         {["Selecionar", "Horários & 🐸", "Confirmar"].map((s, i) => (
@@ -465,18 +473,25 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
 
       {step === 2 && <>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 10px" }}>
-          <p style={{ fontSize: 11, color: X.ac, fontFamily: "'Outfit'", margin: 0 }}>Arraste para reordenar · 🐸 = sapo (+0.3)</p>
-          <span style={{ fontSize: 10, color: X.t3, fontFamily: "'JetBrains Mono'" }}>{startTime} → {endLabel}</span>
+          <p style={{ fontSize: 11, color: X.ac, fontFamily: "'Outfit'", margin: 0 }}>Arraste · toque 🐸 · edite ✏️</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 9, color: X.t3, fontFamily: "'Outfit'" }}>Início:</span>
+            <input type="time" value={startTime} onChange={e => sCustomStart(e.target.value)} step="1800"
+              style={{ background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 6, padding: "3px 6px", color: X.ac, fontSize: 11,
+                fontFamily: "'JetBrains Mono'", outline: "none", width: 70 }} />
+            <span style={{ fontSize: 10, color: X.t3, fontFamily: "'JetBrains Mono'" }}>→ {endLabel}</span>
+          </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {selT.map((t, i) => <div key={t.id} draggable onDragStart={() => sDragI(i)} onDragOver={e => e.preventDefault()} onDrop={() => drop(i)}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 10px", borderRadius: 9, background: X.card,
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 10px", borderRadius: 9, background: X.card,
               border: `1px solid ${frog === t.id ? X.y + "45" : X.brd}`, cursor: "grab" }}>
             <span style={{ color: X.t3, display: "flex" }}><Ic n="grip" s={14} c={X.t3} /></span>
             <span style={{ fontSize: 10, color: X.ac, fontFamily: "'JetBrains Mono'", width: 36, flexShrink: 0 }}>{timeSlots[i]?.label}</span>
             <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
             <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'", flexShrink: 0 }}>{timeSlots[i]?.dur}m</span>
             <Tag ch={CM[t.category]?.icon} color={CM[t.category]?.color} />
+            <button onClick={() => sEditTask(t)} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 3, borderRadius: 4, display: "flex" }}><Ic n="edit" s={11} /></button>
             <button onClick={() => sFrog(frog === t.id ? null : t.id)}
               style={{ background: frog === t.id ? `${X.y}18` : "none", border: `1.5px solid ${frog === t.id ? X.y : X.brd}`, borderRadius: 6, padding: "2px 6px", cursor: "pointer", fontSize: 13 }}>🐸</button>
           </div>)}
@@ -522,7 +537,9 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
         </div>
       </>}
     </div>
-  } />;
+  } />
+  <TaskForm open={!!editTask} onClose={() => sEditTask(null)} onSave={f => handleEditTask(editTask.id, f)} task={editTask} projects={projects} />
+  </>;
 }
 
 // ── CLOSE MODAL ──
@@ -686,7 +703,7 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
       </div>
     </> : !tp ? <Empty icon="🎯" title="Sem plano para hoje" sub="Planeje seu dia para começar a pontuar" /> : null}
 
-    <PlanModal open={showPlan} onClose={() => sShowPlan(false)} tasks={tasks} projects={projects} plans={plans} onSave={hSavePlan} targetDate={target} addTask={data.addTask} profile={profile} />
+    <PlanModal open={showPlan} onClose={() => sShowPlan(false)} tasks={tasks} projects={projects} plans={plans} onSave={hSavePlan} targetDate={target} addTask={data.addTask} updateTask={data.updateTask} profile={profile} />
     <CloseModal open={showClose} onClose={() => sShowClose(false)} plan={tp} tasks={tasks} onClosePlan={hClose} />
   </div>;
 }
@@ -703,8 +720,8 @@ function TabTasks({ data, tst }) {
     if (fC !== "all" && t.category !== fC) return false; return !t.archived_at;
   }).sort((a, b) => cp(b) - cp(a));
 
-  const hAdd = async f => { await addTask(f); tst("Tarefa criada!"); };
-  const hEdit = async (id, f) => { await updateTask(id, f); tst("Atualizada!"); };
+  const hAdd = async f => { const r = await addTask(f); if (r) tst("Tarefa criada!"); else tst("Erro ao criar", "error"); };
+  const hEdit = async (id, f) => { const r = await updateTask(id, f); if (r) tst("Atualizada!"); else tst("Erro ao salvar", "error"); };
   const hDel = async id => { if (confirm("Excluir?")) await deleteTask(id); };
   const hStat = async (id, s) => { await updateTask(id, { status: s, completed_at: s === "done" ? new Date().toISOString() : null }); };
 
