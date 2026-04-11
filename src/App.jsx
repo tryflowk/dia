@@ -348,7 +348,7 @@ function TC({ task, projects, onEdit, onDelete, onStatus, compact, isFrog, showF
 }
 
 // ── PLANNING MODAL ──
-function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, addTask, updateTask, profile }) {
+function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, addTask, updateTask, updateProfile, profile }) {
   const [sel, sSel] = useState([]); const [frog, sFrog] = useState(null); const [step, sStep] = useState(1); const [dragI, sDragI] = useState(null); const [saving, sSaving] = useState(false);
   const [quickTitle, sQuickTitle] = useState(""); const [addingQuick, sAddingQuick] = useState(false);
   const [editTask, sEditTask] = useState(null);
@@ -448,7 +448,12 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
   }, [selT, startTime]);
   const endLabel = `${String(Math.floor(endMins / 60) % 24).padStart(2, "0")}:${String(endMins % 60).padStart(2, "0")}`;
 
-  const save = async () => { sSaving(true); await onSave(targetDate, sel, frog); sSaving(false); onClose(); };
+  const save = async () => {
+    sSaving(true);
+    if (customStart) await updateProfile({ day_start_time: customStart });
+    await onSave(targetDate, sel, frog);
+    sSaving(false); onClose();
+  };
 
   const handleEditTask = async (id, f) => { await updateTask(id, f); };
 
@@ -739,7 +744,7 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
       </div>
     </> : !tp ? <Empty icon="🎯" title="Sem plano para hoje" sub="Planeje seu dia para começar a pontuar" /> : null}
 
-    <PlanModal open={showPlan} onClose={() => sShowPlan(false)} tasks={tasks} projects={projects} plans={plans} onSave={hSavePlan} targetDate={target} addTask={data.addTask} updateTask={data.updateTask} profile={profile} />
+    <PlanModal open={showPlan} onClose={() => sShowPlan(false)} tasks={tasks} projects={projects} plans={plans} onSave={hSavePlan} targetDate={target} addTask={data.addTask} updateTask={data.updateTask} updateProfile={updateProfile} profile={profile} />
     <CloseModal open={showClose} onClose={() => sShowClose(false)} plan={tp} tasks={tasks} onClosePlan={hClose} />
   </div>;
 }
