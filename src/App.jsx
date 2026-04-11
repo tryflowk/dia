@@ -347,8 +347,9 @@ function TC({ task, projects, onEdit, onDelete, onStatus, compact, isFrog, showF
 }
 
 // ── PLANNING MODAL ──
-function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate }) {
+function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, addTask, profile }) {
   const [sel, sSel] = useState([]); const [frog, sFrog] = useState(null); const [step, sStep] = useState(1); const [dragI, sDragI] = useState(null); const [saving, sSaving] = useState(false);
+  const [quickTitle, sQuickTitle] = useState(""); const [addingQuick, sAddingQuick] = useState(false);
   const bl = useMemo(() => tasks.filter(t => t.status !== "done" && !t.archived_at).sort((a, b) => cp(b) - cp(a)), [tasks]);
 
   // If editing existing plan, pre-select its tasks
@@ -362,6 +363,7 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate }
         sFrog(f ? f.task_id : null);
         sStep(1);
       } else { sSel([]); sFrog(null); sStep(1); }
+      sQuickTitle("");
     }
   }, [open]);
 
@@ -376,6 +378,37 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate }
   const cc = new Set(selT.map(t => t.category));
   const tog = id => sSel(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const drop = to => { if (dragI == null || dragI === to) return; const a = [...sel]; const [it] = a.splice(dragI, 1); a.splice(to, 0, it); sSel(a); sDragI(null); };
+
+  // Quick add task
+  const handleQuickAdd = async () => {
+    const title = quickTitle.trim();
+    if (!title || addingQuick) return;
+    sAddingQuick(true);
+    const newTask = await addTask({ title, category: "brain_out", effort_minutes: 30 });
+    if (newTask) sSel(p => [...p, newTask.id]);
+    sQuickTitle("");
+    sAddingQuick(false);
+  };
+
+  // Time slot calculations
+  const startTime = profile?.day_start_time || "07:00";
+  const timeSlots = useMemo(() => {
+    const [h, m] = startTime.split(":").map(Number);
+    let mins = h * 60 + m;
+    return selT.map(t => {
+      const slotH = Math.floor(mins / 60) % 24;
+      const slotM = mins % 60;
+      const label = `${String(slotH).padStart(2, "0")}:${String(slotM).padStart(2, "0")}`;
+      const dur = Math.max(30, Math.ceil((t.effort_minutes || 30) / 30) * 30);
+      mins += dur;
+      return { label, dur };
+    });
+  }, [selT, startTime]);
+  const endMins = useMemo(() => {
+    const [h, m] = startTime.split(":").map(Number);
+    return selT.reduce((acc, t) => acc + Math.max(30, Math.ceil((t.effort_minutes || 30) / 30) * 30), h * 60 + m);
+  }, [selT, startTime]);
+  const endLabel = `${String(Math.floor(endMins / 60) % 24).padStart(2, "0")}:${String(endMins % 60).padStart(2, "0")}`;
 
   const save = async () => { sSaving(true); await onSave(targetDate, sel, frog); sSaving(false); onClose(); };
 
@@ -393,7 +426,7 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate }
   return <Modal open={open} onClose={onClose} title={`${existingPlan ? "Editar" : "Planejar"} ${fd(targetDate)}`} ch={
     <div>
       <div style={{ display: "flex", gap: 2, marginBottom: 14 }}>
-        {["Selecionar", "Ordenar & 🐸", "Confirmar"].map((s, i) => (
+        {["Selecionar", "Horários & 🐸", "Confirmar"].map((s, i) => (
           <div key={i} style={{ flex: 1, textAlign: "center", padding: "5px 0", borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: "'Outfit'",
             background: step === i + 1 ? X.acG : "transparent", color: step === i + 1 ? X.ac : X.t3,
             borderBottom: step === i + 1 ? `2px solid ${X.ac}` : "2px solid transparent" }}>{s}</div>
@@ -401,6 +434,16 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate }
       </div>
 
       {step === 1 && <>
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          <input value={quickTitle} onChange={e => sQuickTitle(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleQuickAdd()}
+            placeholder="+ Adicionar tarefa rápida..."
+            style={{ flex: 1, background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 8, padding: "8px 10px", color: X.t, fontSize: 12,
+              fontFamily: "'Outfit'", outline: "none" }} />
+          <button onClick={handleQuickAdd} disabled={!quickTitle.trim() || addingQuick}
+            style={{ background: X.ac, border: "none", borderRadius: 8, padding: "0 12px", color: "#fff", fontSize: 14, cursor: "pointer",
+              opacity: !quickTitle.trim() || addingQuick ? 0.4 : 1 }}>+</button>
+        </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <span style={{ fontSize: 11, color: X.t2, fontFamily: "'Outfit'" }}>{sel.length} selecionada{sel.length !== 1 && "s"}</span>
           <div style={{ display: "flex", gap: 2 }}>
@@ -421,18 +464,32 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate }
       </>}
 
       {step === 2 && <>
-        <p style={{ fontSize: 11, color: X.ac, fontFamily: "'Outfit'", margin: "0 0 10px" }}>Arraste para reordenar · 🐸 = sapo do dia (+0.3 pts)</p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 10px" }}>
+          <p style={{ fontSize: 11, color: X.ac, fontFamily: "'Outfit'", margin: 0 }}>Arraste para reordenar · 🐸 = sapo (+0.3)</p>
+          <span style={{ fontSize: 10, color: X.t3, fontFamily: "'JetBrains Mono'" }}>{startTime} → {endLabel}</span>
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {selT.map((t, i) => <div key={t.id} draggable onDragStart={() => sDragI(i)} onDragOver={e => e.preventDefault()} onDrop={() => drop(i)}
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 10px", borderRadius: 9, background: X.card,
               border: `1px solid ${frog === t.id ? X.y + "45" : X.brd}`, cursor: "grab" }}>
             <span style={{ color: X.t3, display: "flex" }}><Ic n="grip" s={14} c={X.t3} /></span>
-            <span style={{ fontSize: 10, color: X.t3, fontFamily: "'JetBrains Mono'", width: 16 }}>{i + 1}</span>
+            <span style={{ fontSize: 10, color: X.ac, fontFamily: "'JetBrains Mono'", width: 36, flexShrink: 0 }}>{timeSlots[i]?.label}</span>
             <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+            <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'", flexShrink: 0 }}>{timeSlots[i]?.dur}m</span>
             <Tag ch={CM[t.category]?.icon} color={CM[t.category]?.color} />
             <button onClick={() => sFrog(frog === t.id ? null : t.id)}
               style={{ background: frog === t.id ? `${X.y}18` : "none", border: `1.5px solid ${frog === t.id ? X.y : X.brd}`, borderRadius: 6, padding: "2px 6px", cursor: "pointer", fontSize: 13 }}>🐸</button>
           </div>)}
+        </div>
+        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+          <input value={quickTitle} onChange={e => sQuickTitle(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleQuickAdd()}
+            placeholder="+ Tarefa rápida aqui também..."
+            style={{ flex: 1, background: X.bg, border: `1px solid ${X.brd}`, borderRadius: 8, padding: "7px 10px", color: X.t, fontSize: 11,
+              fontFamily: "'Outfit'", outline: "none" }} />
+          <button onClick={handleQuickAdd} disabled={!quickTitle.trim() || addingQuick}
+            style={{ background: X.ac, border: "none", borderRadius: 8, padding: "0 10px", color: "#fff", fontSize: 13, cursor: "pointer",
+              opacity: !quickTitle.trim() || addingQuick ? 0.4 : 1 }}>+</button>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
           <Btn v="ghost" onClick={() => sStep(1)} ch="← Voltar" sm />
@@ -445,9 +502,18 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate }
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11, color: X.t2, fontFamily: "'Outfit'" }}>
             <div>📋 {selT.length} tarefa{selT.length !== 1 && "s"}</div>
             <div>🐸 {frog ? (selT.find(t => t.id === frog)?.title || "—").slice(0, 20) : "Nenhum"}</div>
-            <div>⏱ {selT.reduce((s, t) => s + (t.effort_minutes || 0), 0)} min</div>
+            <div>🕐 {startTime} → {endLabel}</div>
             <div>📊 {cc.size}/6 categorias</div>
           </div>
+        </div>
+        <div style={{ maxHeight: 150, overflow: "auto", display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
+          {selT.map((t, i) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 6, background: X.card, fontSize: 11, fontFamily: "'Outfit'" }}>
+              <span style={{ color: X.ac, fontFamily: "'JetBrains Mono'", fontSize: 10, width: 36 }}>{timeSlots[i]?.label}</span>
+              <span style={{ flex: 1, color: X.t, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+              {t.id === frog && <span style={{ fontSize: 11 }}>🐸</span>}
+            </div>
+          ))}
         </div>
         {cc.size === 6 && <div style={{ background: `${X.g}08`, border: `1px solid ${X.g}20`, borderRadius: 8, padding: "7px 12px", marginBottom: 10, fontSize: 11, color: X.g, fontFamily: "'Outfit'", fontWeight: 600 }}>⭐ 6/6 categorias! +1.0 bônus se completar tudo</div>}
         <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -515,8 +581,16 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
 
   const planT = useMemo(() => {
     if (!tp) return [];
-    return (tp.plan_tasks || []).map(pt => { const t = tasks.find(x => x.id === pt.task_id); return t ? { ...t, _ptId: pt.id, is_frog: pt.is_frog, order_index: pt.order_index } : null; }).filter(Boolean).sort((a, b) => a.order_index - b.order_index);
-  }, [tp, tasks]);
+    const sorted = (tp.plan_tasks || []).map(pt => { const t = tasks.find(x => x.id === pt.task_id); return t ? { ...t, _ptId: pt.id, is_frog: pt.is_frog, order_index: pt.order_index } : null; }).filter(Boolean).sort((a, b) => a.order_index - b.order_index);
+    const [h, m] = (profile.day_start_time || "07:00").split(":").map(Number);
+    let mins = h * 60 + m;
+    return sorted.map(t => {
+      const slotH = Math.floor(mins / 60) % 24; const slotM = mins % 60;
+      const label = `${String(slotH).padStart(2, "0")}:${String(slotM).padStart(2, "0")}`;
+      mins += Math.max(30, Math.ceil((t.effort_minutes || 30) / 30) * 30);
+      return { ...t, _time: label };
+    });
+  }, [tp, tasks, profile.day_start_time]);
 
   const sc = tp ? calcScore(tp.plan_tasks || [], tasks) : null;
   const cc = new Set(planT.filter(t => t.status === "done").map(t => t.category));
@@ -605,13 +679,14 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
         Tarefas <span style={{ fontWeight: 400, color: X.t2 }}>({planT.filter(t => t.status === "done").length}/{planT.length})</span>
       </h3>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {planT.map((t, i) => <div key={t.id} style={{ animationDelay: `${i * 50}ms` }} className="af">
-          <TC task={t} projects={projects} compact isFrog={t.is_frog} onStatus={hStatus} />
+        {planT.map((t, i) => <div key={t.id} style={{ animationDelay: `${i * 50}ms`, display: "flex", alignItems: "center", gap: 6 }} className="af">
+          <span style={{ fontSize: 10, color: X.ac, fontFamily: "'JetBrains Mono'", width: 36, flexShrink: 0, textAlign: "center" }}>{t._time}</span>
+          <div style={{ flex: 1 }}><TC task={t} projects={projects} compact isFrog={t.is_frog} onStatus={hStatus} /></div>
         </div>)}
       </div>
     </> : !tp ? <Empty icon="🎯" title="Sem plano para hoje" sub="Planeje seu dia para começar a pontuar" /> : null}
 
-    <PlanModal open={showPlan} onClose={() => sShowPlan(false)} tasks={tasks} projects={projects} plans={plans} onSave={hSavePlan} targetDate={target} />
+    <PlanModal open={showPlan} onClose={() => sShowPlan(false)} tasks={tasks} projects={projects} plans={plans} onSave={hSavePlan} targetDate={target} addTask={data.addTask} profile={profile} />
     <CloseModal open={showClose} onClose={() => sShowClose(false)} plan={tp} tasks={tasks} onClosePlan={hClose} />
   </div>;
 }
