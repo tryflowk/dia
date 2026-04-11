@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth, useData } from "./lib/db";
 
 /* ═══════════════════════════════════════
@@ -281,7 +281,8 @@ function TaskForm({ open, onClose, onSave, task, projects, loading: ld }) {
         <Dots label="Chatice" value={f.tediousness} onChange={v => sF(p => ({ ...p, tediousness: v }))} color={X.p} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Inp label="Esforço (min)" type="number" value={f.effort_minutes} onChange={v => sF(p => ({ ...p, effort_minutes: parseInt(v) || 0 }))} min={5} max={480} />
+        <Sel label="Duração" value={f.effort_minutes} onChange={v => sF(p => ({ ...p, effort_minutes: parseInt(v) }))}
+          opts={[{ v: 30, l: "30 min" }, { v: 60, l: "1h" }, { v: 90, l: "1h30" }, { v: 120, l: "2h" }, { v: 150, l: "2h30" }, { v: 180, l: "3h" }, { v: 210, l: "3h30" }, { v: 240, l: "4h" }]} />
         <Sel label="Projeto" value={f.project_id || ""} onChange={v => sF(p => ({ ...p, project_id: v || null }))}
           opts={[{ v: "", l: "Sem projeto" }, ...projects.map(p => ({ v: p.id, l: p.name }))]} />
       </div>
@@ -381,6 +382,41 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
   const tog = id => sSel(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const drop = to => { if (dragI == null || dragI === to) return; const a = [...sel]; const [it] = a.splice(dragI, 1); a.splice(to, 0, it); sSel(a); sDragI(null); };
 
+  // Touch reorder for mobile
+  const touchRef = useRef({ idx: null, startY: 0, heights: [] });
+  const listRef = useRef(null);
+  const handleTouchStart = (i, e) => {
+    const items = listRef.current?.children;
+    if (!items) return;
+    const heights = Array.from(items).map(el => el.getBoundingClientRect());
+    touchRef.current = { idx: i, startY: e.touches[0].clientY, heights, curIdx: i };
+    sDragI(i);
+  };
+  const handleTouchMove = (e) => {
+    const t = touchRef.current;
+    if (t.idx == null) return;
+    e.preventDefault();
+    const y = e.touches[0].clientY;
+    const rects = t.heights;
+    let newIdx = t.idx;
+    for (let j = 0; j < rects.length; j++) {
+      const mid = rects[j].top + rects[j].height / 2;
+      if (y < mid) { newIdx = j; break; }
+      newIdx = j;
+    }
+    if (newIdx !== t.curIdx) {
+      const a = [...sel]; const [it] = a.splice(t.curIdx, 1); a.splice(newIdx, 0, it);
+      sSel(a);
+      t.curIdx = newIdx;
+      // Recalc rects after reorder
+      requestAnimationFrame(() => {
+        const items = listRef.current?.children;
+        if (items) t.heights = Array.from(items).map(el => el.getBoundingClientRect());
+      });
+    }
+  };
+  const handleTouchEnd = () => { touchRef.current.idx = null; sDragI(null); };
+
   // Quick add task
   const handleQuickAdd = async () => {
     const title = quickTitle.trim();
@@ -401,14 +437,14 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
       const slotH = Math.floor(mins / 60) % 24;
       const slotM = mins % 60;
       const label = `${String(slotH).padStart(2, "0")}:${String(slotM).padStart(2, "0")}`;
-      const dur = Math.max(30, Math.ceil((t.effort_minutes || 30) / 30) * 30);
+      const dur = t.effort_minutes || 30;
       mins += dur;
       return { label, dur };
     });
   }, [selT, startTime]);
   const endMins = useMemo(() => {
     const [h, m] = startTime.split(":").map(Number);
-    return selT.reduce((acc, t) => acc + Math.max(30, Math.ceil((t.effort_minutes || 30) / 30) * 30), h * 60 + m);
+    return selT.reduce((acc, t) => acc + (t.effort_minutes || 30), h * 60 + m);
   }, [selT, startTime]);
   const endLabel = `${String(Math.floor(endMins / 60) % 24).padStart(2, "0")}:${String(endMins % 60).padStart(2, "0")}`;
 
@@ -482,14 +518,14 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
             <span style={{ fontSize: 10, color: X.t3, fontFamily: "'JetBrains Mono'" }}>→ {endLabel}</span>
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div ref={listRef} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {selT.map((t, i) => <div key={t.id} draggable onDragStart={() => sDragI(i)} onDragOver={e => e.preventDefault()} onDrop={() => drop(i)}
-            style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 10px", borderRadius: 9, background: X.card,
-              border: `1px solid ${frog === t.id ? X.y + "45" : X.brd}`, cursor: "grab" }}>
-            <span style={{ color: X.t3, display: "flex" }}><Ic n="grip" s={14} c={X.t3} /></span>
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 10px", borderRadius: 9, background: dragI === i ? X.s3 : X.card,
+              border: `1px solid ${frog === t.id ? X.y + "45" : X.brd}`, cursor: "grab", transition: "background .1s", touchAction: "none" }}>
+            <span onTouchStart={e => handleTouchStart(i, e)} style={{ color: X.t3, display: "flex", padding: 4, touchAction: "none" }}><Ic n="grip" s={14} c={X.t3} /></span>
             <span style={{ fontSize: 10, color: X.ac, fontFamily: "'JetBrains Mono'", width: 36, flexShrink: 0 }}>{timeSlots[i]?.label}</span>
             <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: X.t, fontFamily: "'Outfit'", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-            <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'", flexShrink: 0 }}>{timeSlots[i]?.dur}m</span>
+            <span style={{ fontSize: 9, color: X.t3, fontFamily: "'JetBrains Mono'", flexShrink: 0 }}>{timeSlots[i]?.dur >= 60 ? `${Math.floor(timeSlots[i].dur / 60)}h${timeSlots[i].dur % 60 ? timeSlots[i].dur % 60 : ""}` : `${timeSlots[i]?.dur}m`}</span>
             <Tag ch={CM[t.category]?.icon} color={CM[t.category]?.color} />
             <button onClick={() => sEditTask(t)} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 3, borderRadius: 4, display: "flex" }}><Ic n="edit" s={11} /></button>
             <button onClick={() => sFrog(frog === t.id ? null : t.id)}
@@ -604,7 +640,7 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
     return sorted.map(t => {
       const slotH = Math.floor(mins / 60) % 24; const slotM = mins % 60;
       const label = `${String(slotH).padStart(2, "0")}:${String(slotM).padStart(2, "0")}`;
-      mins += Math.max(30, Math.ceil((t.effort_minutes || 30) / 30) * 30);
+      mins += (t.effort_minutes || 30);
       return { ...t, _time: label };
     });
   }, [tp, tasks, profile.day_start_time]);
