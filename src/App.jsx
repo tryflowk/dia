@@ -211,7 +211,8 @@ function ScoreRing({ value, max = 1, size = 72, color = X.ac, label }) {
 // ── AUTH SCREEN ──
 function AuthScreen({ onAuth }) {
   const { signIn, signUp } = onAuth;
-  const [mode, setMode] = useState("login"); // login | signup
+  const [showAuth, setShowAuth] = useState(false);
+  const [mode, setMode] = useState("login");
   const [email, setEmail] = useState(""); const [pass, setPass] = useState(""); const [name, setName] = useState("");
   const [err, setErr] = useState(""); const [ld, setLd] = useState(false);
 
@@ -229,31 +230,120 @@ function AuthScreen({ onAuth }) {
     setLd(false);
   };
 
-  return (
-    <div style={{ minHeight: "100vh", background: X.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ textAlign: "center", maxWidth: 340, width: "100%" }} className="asu">
-        <div style={{ fontSize: 52, marginBottom: 6 }}>🎯</div>
-        <h1 style={{ fontFamily: "'Outfit'", fontSize: 48, fontWeight: 900, color: X.ac, margin: "0 0 2px", letterSpacing: 6, textTransform: "uppercase" }}>DIA</h1>
-        <p style={{ fontFamily: "'Outfit'", fontSize: 13, color: X.t2, margin: "0 0 24px", letterSpacing: .5 }}>Planeje · Execute · Evolua</p>
+  const features = [
+    { icon: "📋", title: "Planeje", desc: "Monte seu dia com tarefas organizadas por categorias e prioridades" },
+    { icon: "⚡", title: "Execute", desc: "Acompanhe o progresso e marque tarefas concluídas ao longo do dia" },
+    { icon: "🏆", title: "Evolua", desc: "Ganhe pontos, suba de nível e desbloqueie conquistas com consistência" },
+  ];
 
-        <div style={{ display: "flex", gap: 2, marginBottom: 16, background: X.bg2, borderRadius: 8, padding: 2 }}>
-          {[{ id: "login", l: "Entrar" }, { id: "signup", l: "Criar conta" }].map(v => (
-            <button key={v.id} onClick={() => { setMode(v.id); setErr(""); }}
-              style={{ flex: 1, padding: "8px 0", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: "'Outfit'", fontSize: 13, fontWeight: 600,
-                background: mode === v.id ? X.s2 : "transparent", color: mode === v.id ? X.t : X.t3, transition: "all .12s" }}>{v.l}</button>
+  const highlights = [
+    { icon: "🐸", text: "Sapo do dia — encare primeiro a tarefa mais difícil" },
+    { icon: "📅", text: "Google Calendar — veja compromissos no planejamento" },
+    { icon: "🔄", text: "Sync em tempo real entre todos os dispositivos" },
+    { icon: "📱", text: "Instale como app no celular (PWA)" },
+  ];
+
+  return (
+    <div style={{ minHeight: "100vh", background: X.bg, fontFamily: "'Outfit', sans-serif" }}>
+      {/* Hero */}
+      <div style={{ textAlign: "center", padding: "60px 24px 40px", maxWidth: 480, margin: "0 auto" }} className="asu">
+        <div style={{ fontSize: 56, marginBottom: 8 }}>🎯</div>
+        <h1 style={{ fontSize: 52, fontWeight: 900, color: X.ac, margin: "0 0 4px", letterSpacing: 6, textTransform: "uppercase" }}>DIA</h1>
+        <p style={{ fontSize: 17, color: X.t, fontWeight: 600, margin: "0 0 6px" }}>Produtividade Gamificada</p>
+        <p style={{ fontSize: 14, color: X.t2, margin: "0 0 28px", lineHeight: 1.5 }}>Transforme seu dia em um jogo. Planeje, execute e evolua — todos os dias.</p>
+        <Btn onClick={() => setShowAuth(true)} sty={{ padding: "14px 36px", fontSize: 16, borderRadius: 12 }} ch="Comece agora — é grátis" />
+      </div>
+
+      {/* How it works */}
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 24px 32px" }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          {features.map((f, i) => (
+            <div key={i} className="af" style={{ animationDelay: `${i * 100}ms`, flex: 1, background: X.card, borderRadius: 14, border: `1px solid ${X.brd}`, padding: "18px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 28, marginBottom: 6 }}>{f.icon}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: X.ac, marginBottom: 4 }}>{f.title}</div>
+              <div style={{ fontSize: 11, color: X.t2, lineHeight: 1.5 }}>{f.desc}</div>
+            </div>
           ))}
         </div>
+      </div>
 
-        <div style={{ background: X.s1, borderRadius: 18, border: `1px solid ${X.brd}`, padding: 24, textAlign: "left" }}>
+      {/* Scoring */}
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 24px 32px" }} className="af">
+        <div style={{ background: `linear-gradient(145deg, ${X.s1}, ${X.s2})`, borderRadius: 16, border: `1px solid ${X.brd}`, padding: 20 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: X.t, margin: "0 0 12px", textAlign: "center" }}>Sistema de Pontuação</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[{ i: "🏃", l: "Exercício", p: "+0.3" }, { i: "🐸", l: "Sapo do dia", p: "+0.3" }, { i: "📋", l: "Conclusão", p: "até +0.4" }, { i: "⭐", l: "6/6 categorias", p: "+1.0" }].map(s => (
+              <div key={s.l} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: X.bg, borderRadius: 8 }}>
+                <span style={{ fontSize: 16 }}>{s.i}</span>
+                <div><div style={{ fontSize: 11, color: X.t }}>{s.l}</div><div style={{ fontSize: 12, fontWeight: 700, color: X.g, fontFamily: "'JetBrains Mono'" }}>{s.p}</div></div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center", marginTop: 10 }}>
+            <span style={{ fontSize: 11, color: X.t3 }}>Máximo diário: </span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: X.ac, fontFamily: "'JetBrains Mono'" }}>2.0 pontos</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Highlights */}
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 24px 32px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {highlights.map((h, i) => (
+            <div key={i} className="af" style={{ animationDelay: `${i * 60}ms`, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: X.card, borderRadius: 10, border: `1px solid ${X.brd}` }}>
+              <span style={{ fontSize: 18 }}>{h.icon}</span>
+              <span style={{ fontSize: 13, color: X.t2 }}>{h.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Levels */}
+      <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 24px 32px" }} className="af">
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: X.t, margin: "0 0 10px", textAlign: "center" }}>Níveis</h3>
+        <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+          {LVL.map(l => (
+            <div key={l.n} style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", background: `${l.c}10`, borderRadius: 8, border: `1px solid ${l.c}25` }}>
+              <span style={{ fontSize: 14 }}>{l.i}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: l.c }}>{l.n}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div style={{ textAlign: "center", padding: "0 24px 20px", maxWidth: 480, margin: "0 auto" }}>
+        <Btn onClick={() => setShowAuth(true)} sty={{ padding: "14px 36px", fontSize: 16, borderRadius: 12 }} ch="Comece agora — é grátis" full />
+      </div>
+
+      {/* Footer */}
+      <div style={{ textAlign: "center", padding: "16px 24px 32px", maxWidth: 480, margin: "0 auto", borderTop: `1px solid ${X.brd}` }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 8 }}>
+          <a href="/privacy.html" style={{ fontSize: 11, color: X.t3, textDecoration: "none" }}>Política de Privacidade</a>
+          <a href="/terms.html" style={{ fontSize: 11, color: X.t3, textDecoration: "none" }}>Termos de Uso</a>
+        </div>
+        <p style={{ fontSize: 10, color: X.t3 }}>Feito com 🧡 por tryflowk</p>
+      </div>
+
+      {/* Auth modal */}
+      <Modal open={showAuth} onClose={() => setShowAuth(false)} title={mode === "signup" ? "Criar conta" : "Entrar"} w={360} ch={
+        <div>
+          <div style={{ display: "flex", gap: 2, marginBottom: 16, background: X.bg, borderRadius: 8, padding: 2 }}>
+            {[{ id: "login", l: "Entrar" }, { id: "signup", l: "Criar conta" }].map(v => (
+              <button key={v.id} onClick={() => { setMode(v.id); setErr(""); }}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: "'Outfit'", fontSize: 13, fontWeight: 600,
+                  background: mode === v.id ? X.s2 : "transparent", color: mode === v.id ? X.t : X.t3, transition: "all .12s" }}>{v.l}</button>
+            ))}
+          </div>
           {mode === "signup" && <Inp label="Nome" value={name} onChange={setName} ph="Seu nome" sty={{ marginBottom: 12 }} />}
           <Inp label="Email" value={email} onChange={setEmail} ph="email@exemplo.com" type="email" sty={{ marginBottom: 12 }} />
           <Inp label="Senha" value={pass} onChange={setPass} ph="••••••••" type="password" sty={{ marginBottom: 16 }} />
           {err && <p style={{ fontSize: 12, color: X.r, fontFamily: "'Outfit'", margin: "0 0 12px", textAlign: "center" }}>{err}</p>}
           <Btn onClick={handle} dis={!email || !pass} full loading={ld}
             sty={{ padding: "12px 20px", fontSize: 15 }} ch={mode === "signup" ? "Criar conta" : "Entrar"} />
+          <p style={{ fontFamily: "'Outfit'", fontSize: 10, color: X.t3, marginTop: 12, textAlign: "center" }}>Sincroniza entre todos os seus dispositivos</p>
         </div>
-        <p style={{ fontFamily: "'Outfit'", fontSize: 10, color: X.t3, marginTop: 14 }}>Sincroniza entre todos os seus dispositivos</p>
-      </div>
+      } />
     </div>
   );
 }
