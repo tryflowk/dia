@@ -28,7 +28,7 @@ const LVL = [
 ];
 
 const gl = s => LVL.find(l => s >= l.min && s <= l.max) || LVL[0];
-const tdy = (d = new Date()) => d.toISOString().split("T")[0];
+const tdy = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const tmrw = () => { const d = new Date(); d.setDate(d.getDate() + 1); return tdy(d); };
 const fd = s => { try { return new Date(s + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" }); } catch { return s; } };
 const cp = t => (t.urgency || 1) * 3 + (t.importance || 1) * 2 + (t.tediousness || 1);
@@ -501,6 +501,22 @@ function PlanModal({ open, onClose, tasks, projects, plans, onSave, targetDate, 
   }, [bl, sel, tasks]);
   const selT = sel.map(id => tasks.find(t => t.id === id)).filter(Boolean);
   const cc = new Set(selT.map(t => t.category));
+
+  // Auto-frog: assign to highest cp() task (only if strictly greater than all others)
+  useEffect(() => {
+    if (!selT.length) { sFrog(null); return; }
+    const scores = selT.map(t => ({ id: t.id, s: cp(t) })).sort((a, b) => b.s - a.s);
+    const top = scores[0];
+    // Only auto-assign if strictly greater (no tie)
+    if (scores.length === 1 || top.s > scores[1].s) {
+      sFrog(top.id);
+    }
+    // If tie and current frog is still in plan, keep it; if not in plan, clear
+    else if (frog && !sel.includes(frog)) {
+      sFrog(null);
+    }
+  }, [sel.join(",")]); // eslint-disable-line
+
   const tog = id => sSel(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   const drop = to => { if (dragI == null || dragI === to) return; const a = [...sel]; const [it] = a.splice(dragI, 1); a.splice(to, 0, it); sSel(a); sDragI(null); };
 
@@ -900,6 +916,70 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
   </div>;
 }
 
+// ── PROJECTS VIEW (expandable cards) ──
+function ProjectsView({ projects, tasks, onEditProject, onNewProject, deleteProject, onEditTask, onAddTask, onDeleteTask, onStatusTask }) {
+  const [expanded, setExpanded] = useState(null);
+  const [projFilter, setProjFilter] = useState("active"); // active | done | all
+
+  return <>
+    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}><Btn sm onClick={onNewProject} icon="plus" ch="Novo" /></div>
+    {!projects.length ? <Empty icon="📁" title="Nenhum projeto" sub="Organize por contexto" action={<Btn sm onClick={onNewProject} icon="plus" ch="Criar" />} />
+      : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {projects.map((p, i) => {
+          const allPt = tasks.filter(t => t.project_id === p.id && !t.archived_at);
+          const pd = allPt.filter(t => t.status === "done").length;
+          const pct = allPt.length ? pd / allPt.length : 0;
+          const isOpen = expanded === p.id;
+          const filteredPt = allPt.filter(t => {
+            if (projFilter === "active") return t.status !== "done";
+            if (projFilter === "done") return t.status === "done";
+            return true;
+          }).sort((a, b) => cp(b) - cp(a));
+
+          return <div key={p.id} className="af" style={{ animationDelay: `${i * 40}ms`, background: X.card, borderRadius: 10, border: `1px solid ${isOpen ? p.color + "40" : X.brd}`, borderLeft: `3px solid ${p.color}`, overflow: "hidden" }}>
+            {/* Project header */}
+            <div onClick={() => setExpanded(isOpen ? null : p.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 13px", cursor: "pointer" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
+                  <span style={{ fontFamily: "'Outfit'", fontSize: 13, fontWeight: 600, color: X.t }}>{p.name}</span>
+                </div>
+                <span style={{ fontFamily: "'Outfit'", fontSize: 10, color: X.t2 }}>{pd}/{allPt.length} concluídas</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <button onClick={e => { e.stopPropagation(); onEditProject(p); }} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 4 }}><Ic n="edit" s={12} /></button>
+                <button onClick={async e => { e.stopPropagation(); if (confirm("Excluir projeto?")) await deleteProject(p.id); }} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 4 }}><Ic n="trash" s={12} /></button>
+                <span style={{ fontSize: 12, color: X.t3, transform: isOpen ? "rotate(0)" : "rotate(-90deg)", transition: "transform .15s" }}>▾</span>
+              </div>
+            </div>
+            {/* Progress bar */}
+            <div style={{ height: 3, background: X.brd, margin: "0 13px", borderRadius: 2, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct * 100}%`, background: p.color, borderRadius: 2 }} /></div>
+            {/* Expanded: tasks list */}
+            {isOpen && <div style={{ padding: "10px 13px 13px", borderTop: `1px solid ${X.brd}`, marginTop: 8 }}>
+              {/* Filters + Add */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ display: "flex", gap: 3 }}>
+                  {[{ id: "active", l: "Ativas", c: X.ac }, { id: "done", l: "Concluídas", c: X.g }, { id: "all", l: "Todas", c: X.p }].map(o => (
+                    <button key={o.id} onClick={() => setProjFilter(o.id)} style={{ padding: "2px 8px", borderRadius: 5, border: `1px solid ${projFilter === o.id ? o.c : X.brd}`,
+                      background: projFilter === o.id ? `${o.c}10` : "transparent", color: projFilter === o.id ? o.c : X.t3, fontFamily: "'Outfit'", fontSize: 9, cursor: "pointer", fontWeight: 600 }}>{o.l}</button>
+                  ))}
+                </div>
+                <Btn v="ghost" sm onClick={() => onAddTask(p)} icon="plus" ch="Nova" />
+              </div>
+              {/* Task list */}
+              {!filteredPt.length ? <div style={{ textAlign: "center", padding: "10px 0" }}>
+                <span style={{ fontSize: 11, color: X.t3, fontFamily: "'Outfit'" }}>{projFilter === "done" ? "Nenhuma concluída" : "Nenhuma tarefa"}</span>
+              </div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {filteredPt.map(t => <TC key={t.id} task={t} projects={projects} compact onEdit={onEditTask} onDelete={onDeleteTask} onStatus={onStatusTask} />)}
+              </div>}
+            </div>}
+          </div>;
+        })}
+      </div>}
+  </>;
+}
+
 // ── TAB: TAREFAS ──
 function TabTasks({ data, tst }) {
   const { tasks, projects, addTask, updateTask, deleteTask, addProject, updateProject, deleteProject } = data;
@@ -954,25 +1034,10 @@ function TabTasks({ data, tst }) {
           </div>)}
           <div style={{ textAlign: "center", marginTop: 3 }}><span style={{ fontFamily: "'JetBrains Mono'", fontSize: 9, color: X.t3 }}>{fil.length}</span></div>
         </div>}
-    </> : <>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}><Btn sm onClick={() => { sEP(null); sSPF(true); }} icon="plus" ch="Novo" /></div>
-      {!projects.length ? <Empty icon="📁" title="Nenhum projeto" sub="Organize por contexto" action={<Btn sm onClick={() => { sEP(null); sSPF(true); }} icon="plus" ch="Criar" />} />
-        : <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          {projects.map((p, i) => { const pt = tasks.filter(t => t.project_id === p.id && !t.archived_at); const pd = pt.filter(t => t.status === "done").length; const pct = pt.length ? pd / pt.length : 0;
-            return <div key={p.id} className="af" style={{ animationDelay: `${i * 40}ms`, background: X.card, borderRadius: 10, border: `1px solid ${X.brd}`, padding: "11px 13px", borderLeft: `3px solid ${p.color}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div><div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}><div style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} /><span style={{ fontFamily: "'Outfit'", fontSize: 13, fontWeight: 600, color: X.t }}>{p.name}</span></div>
-                  <span style={{ fontFamily: "'Outfit'", fontSize: 10, color: X.t2 }}>{pd}/{pt.length}</span></div>
-                <div style={{ display: "flex", gap: 2 }}>
-                  <button onClick={() => { sEP(p); sSPF(true); }} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 4 }}><Ic n="edit" s={12} /></button>
-                  <button onClick={async () => { if (confirm("Excluir?")) await deleteProject(p.id); }} style={{ background: "none", border: "none", color: X.t3, cursor: "pointer", padding: 4 }}><Ic n="trash" s={12} /></button>
-                </div>
-              </div>
-              <div style={{ height: 3, background: X.brd, borderRadius: 2, marginTop: 6, overflow: "hidden" }}><div style={{ height: "100%", width: `${pct * 100}%`, background: p.color, borderRadius: 2 }} /></div>
-            </div>; })}
-        </div>}
-    </>}
-    <TaskForm open={sTF} onClose={() => { sSTF(false); sET(null); }} onSave={f => eT ? hEdit(eT.id, f) : hAdd(f)} task={eT} projects={projects} />
+    </> : <ProjectsView projects={projects} tasks={tasks} onEditProject={p => { sEP(p); sSPF(true); }} onNewProject={() => { sEP(null); sSPF(true); }}
+      deleteProject={deleteProject} onEditTask={t => { sET(t); sSTF(true); }} onAddTask={p => { sET({ project_id: p.id }); sSTF(true); }}
+      onDeleteTask={hDel} onStatusTask={hStat} />}
+    <TaskForm open={sTF} onClose={() => { sSTF(false); sET(null); }} onSave={f => eT?.id ? hEdit(eT.id, f) : hAdd(f)} task={eT} projects={projects} />
     <ProjForm open={sPF} onClose={() => { sSPF(false); sEP(null); }} onSave={async f => {
       if (eP) await updateProject(eP.id, f); else await addProject(f);
     }} proj={eP} />
