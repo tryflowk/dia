@@ -28,7 +28,7 @@ const LVL = [
 ];
 
 const gl = s => LVL.find(l => s >= l.min && s <= l.max) || LVL[0];
-const tdy = (d = new Date()) => d.toISOString().split("T")[0];
+const tdy = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const tmrw = () => { const d = new Date(); d.setDate(d.getDate() + 1); return tdy(d); };
 const fd = s => { try { return new Date(s + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" }); } catch { return s; } };
 const cp = t => (t.urgency || 1) * 3 + (t.importance || 1) * 2 + (t.tediousness || 1);
