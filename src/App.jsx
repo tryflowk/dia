@@ -1037,7 +1037,6 @@ function TabTasks({ data, tst }) {
     </> : <ProjectsView projects={projects} tasks={tasks} onEditProject={p => { sEP(p); sSPF(true); }} onNewProject={() => { sEP(null); sSPF(true); }}
       deleteProject={deleteProject} onEditTask={t => { sET(t); sSTF(true); }} onAddTask={p => { sET({ project_id: p.id }); sSTF(true); }}
       onDeleteTask={hDel} onStatusTask={hStat} />}
-    </>}
     <TaskForm open={sTF} onClose={() => { sSTF(false); sET(null); }} onSave={f => eT?.id ? hEdit(eT.id, f) : hAdd(f)} task={eT} projects={projects} />
     <ProjForm open={sPF} onClose={() => { sSPF(false); sEP(null); }} onSave={async f => {
       if (eP) await updateProject(eP.id, f); else await addProject(f);
