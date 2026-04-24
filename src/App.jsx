@@ -759,7 +759,7 @@ function CloseModal({ open, onClose, plan, tasks, onClosePlan }) {
   const pend = pts.filter(t => t.status !== "done"); const allD = pend.every(t => dec[t.task_id]);
   const sc = calcScore(plan.plan_tasks || [], tasks);
 
-  const handle = async () => { sSaving(true); await onClosePlan(plan.id, sc, dec); sSaving(false); onClose(); };
+  const handle = async () => { sSaving(true); await onClosePlan(plan.id, sc, dec, plan.date); sSaving(false); onClose(); };
 
   return <Modal open={open} onClose={onClose} title="Fechar o dia" w={440} ch={
     <div>
@@ -800,8 +800,12 @@ function CloseModal({ open, onClose, plan, tasks, onClosePlan }) {
 // ── TAB: HOJE ──
 function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
   const { tasks, projects, plans, savePlan, updatePlanTaskStatus, closePlan, reopenPlan } = data;
-  const today = tdy(); const tw_ = tmrw(); const tp = plans.find(p => p.date === today);
-  const [showPlan, sShowPlan] = useState(false); const [showClose, sShowClose] = useState(false); const [target, sTarget] = useState(tw_);
+  const today = tdy();
+  // Active plan = any plan with status "planned" (persists past midnight)
+  const activePlan = plans.find(p => p.status === "planned");
+  // For display: show active plan, or today's closed plan
+  const tp = activePlan || plans.find(p => p.date === today && p.status === "closed");
+  const [showPlan, sShowPlan] = useState(false); const [showClose, sShowClose] = useState(false); const [target, sTarget] = useState(today);
   const lv = gl(profile.score);
 
   const planT = useMemo(() => {
@@ -831,22 +835,19 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
     tst(`Plano ${fd(date)} salvo!`);
   };
 
-  const hClose = async (pid, sd, dec) => {
-    const pts = await closePlan(pid, sd, dec);
+  const hClose = async (pid, sd, dec, planDate) => {
+    const pts = await closePlan(pid, sd, dec, planDate);
     await addScore(pts);
     tst(`Dia fechado! +${sd.ts.toFixed(1)} pontos`);
     if (sd.ts >= 1.5) sCf(true);
   };
 
   const hReopen = async () => {
-    if (!tp) return;
-    // Subtract old score
+    if (!tp || tp.status !== "closed") return;
     await addScore(-(tp.total_score || 0));
     await reopenPlan(tp.id);
     tst("Dia reaberto para edição", "info");
   };
-
-  const hasTw = plans.some(p => p.date === tw_);
 
   return <div style={{ padding: "12px 12px 96px" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }} className="af">
@@ -891,17 +892,17 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
     </div>}
 
     <div style={{ display: "flex", gap: 6, marginBottom: 14 }} className="af">
-      {!tp && <Btn full onClick={() => { sTarget(today); sShowPlan(true); }} icon="sun" ch="Planejar hoje" />}
-      {tp && tp.status === "planned" && <>
-        <Btn v="accent" full onClick={() => { sTarget(today); sShowPlan(true); }} icon="edit" ch="Editar plano" />
+      {!activePlan && (!tp || tp.status === "closed") && <Btn full onClick={() => { sTarget(today); sShowPlan(true); }} icon="sun" ch="Planejar dia" />}
+      {activePlan && <>
+        <Btn v="accent" full onClick={() => { sTarget(activePlan.date); sShowPlan(true); }} icon="edit" ch="Editar plano" />
         <Btn v="success" full onClick={() => sShowClose(true)} icon="lock" ch="Fechar dia" />
       </>}
-      {!hasTw && <Btn v={tp ? "secondary" : "accent"} full onClick={() => { sTarget(tw_); sShowPlan(true); }} icon="moon" ch="Planejar amanhã" />}
     </div>
 
     {planT.length > 0 && tp?.status !== "closed" ? <>
-      <h3 style={{ fontFamily: "'Outfit'", fontSize: 13, fontWeight: 700, color: X.t, margin: "0 0 8px" }}>
+      <h3 style={{ fontFamily: "'Outfit'", fontSize: 13, fontWeight: 700, color: X.t, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 6 }}>
         Tarefas <span style={{ fontWeight: 400, color: X.t2 }}>({planT.filter(t => t.status === "done").length}/{planT.length})</span>
+        {tp?.date && tp.date !== today && <span style={{ fontSize: 9, color: X.y, fontWeight: 600, background: `${X.y}12`, padding: "2px 6px", borderRadius: 4 }}>📅 {fd(tp.date)}</span>}
       </h3>
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {planT.map((t, i) => <div key={t.id} style={{ animationDelay: `${i * 50}ms`, display: "flex", alignItems: "center", gap: 6 }} className="af">
