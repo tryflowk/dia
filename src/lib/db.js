@@ -241,9 +241,10 @@ export function useData(userId) {
     return data
   }
 
-  const closePlan = async (planId, scoreData, decisions) => {
-    // Apply decisions to pending tasks
-    const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1); const tmrwStr = tmrw.toISOString().split('T')[0]
+  const closePlan = async (planId, scoreData, decisions, planDate) => {
+    // "Tomorrow" = plan date + 1 (not current date, since user may close after midnight)
+    const pd = new Date(planDate + 'T12:00:00'); pd.setDate(pd.getDate() + 1);
+    const tmrwStr = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}-${String(pd.getDate()).padStart(2, '0')}`
     for (const [taskId, decision] of Object.entries(decisions)) {
       if (decision === 'tomorrow') await updateTask(taskId, { status: 'not_started', planned_date: tmrwStr })
       else if (decision === 'return') await updateTask(taskId, { status: 'not_started', planned_date: null })
