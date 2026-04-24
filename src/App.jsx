@@ -831,8 +831,9 @@ function TabToday({ profile, data, addScore, updateProfile, tst, sCf }) {
   };
 
   const hSavePlan = async (date, taskIds, frogId) => {
-    await savePlan(date, taskIds, frogId);
-    tst(`Plano ${fd(date)} salvo!`);
+    const result = await savePlan(date, taskIds, frogId);
+    if (result) tst(`Plano ${fd(date)} salvo!`);
+    else tst("Erro ao salvar plano. Tente novamente.", "error");
   };
 
   const hClose = async (pid, sd, dec, planDate) => {
