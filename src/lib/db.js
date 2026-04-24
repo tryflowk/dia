@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabase'
 
 // ── Auth Hook ──
@@ -99,6 +99,7 @@ export function useData(userId) {
   const [projects, setProjects] = useState([])
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
+  const savingRef = useRef(false) // suppress Realtime during savePlan
 
   const load = useCallback(async () => {
     if (!userId) return
@@ -147,7 +148,7 @@ export function useData(userId) {
 
   // Separate plan loader for realtime refresh
   const loadPlans = useCallback(async () => {
-    if (!userId) return
+    if (!userId || savingRef.current) return
     const { data } = await supabase.from('daily_plans').select('*, daily_plan_tasks(*)').eq('user_id', userId).order('date', { ascending: false }).limit(60)
     if (data) setPlans(data.map(p => ({ ...p, plan_tasks: p.daily_plan_tasks || [] })))
   }, [userId])
@@ -193,37 +194,42 @@ export function useData(userId) {
 
   // ── Plans ──
   const savePlan = async (date, planTasks, frogId) => {
-    // Upsert plan
-    const { data: plan } = await supabase.from('daily_plans')
-      .upsert({ user_id: userId, date, status: 'planned', planned_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
-      .select().single()
+    savingRef.current = true
+    try {
+      // Upsert plan
+      const { data: plan, error: planErr } = await supabase.from('daily_plans')
+        .upsert({ user_id: userId, date, status: 'planned', planned_at: new Date().toISOString() }, { onConflict: 'user_id,date' })
+        .select().single()
 
-    if (!plan) return null
+      if (planErr || !plan) { console.error('savePlan upsert failed', planErr); return null }
 
-    // Delete old plan_tasks for this plan
-    await supabase.from('daily_plan_tasks').delete().eq('daily_plan_id', plan.id)
+      // Delete old plan_tasks for this plan
+      await supabase.from('daily_plan_tasks').delete().eq('daily_plan_id', plan.id)
 
-    // Insert new plan_tasks
-    const rows = planTasks.map((taskId, i) => ({
-      daily_plan_id: plan.id,
-      task_id: taskId,
-      order_index: i,
-      is_frog: taskId === frogId,
-      status: 'not_started',
-    }))
-    const { data: pts } = await supabase.from('daily_plan_tasks').insert(rows).select()
+      // Insert new plan_tasks
+      const rows = planTasks.map((taskId, i) => ({
+        daily_plan_id: plan.id,
+        task_id: taskId,
+        order_index: i,
+        is_frog: taskId === frogId,
+        status: 'not_started',
+      }))
+      const { data: pts, error: ptsErr } = await supabase.from('daily_plan_tasks').insert(rows).select()
+      if (ptsErr) { console.error('savePlan insert plan_tasks failed', ptsErr); return null }
 
-    // Update tasks planned_date
-    for (const taskId of planTasks) {
-      await updateTask(taskId, { planned_date: date, status: 'not_started' })
+      // Update tasks planned_date
+      for (const taskId of planTasks) {
+        await updateTask(taskId, { planned_date: date, status: 'not_started' })
+      }
+
+      // Authoritative reload from DB — prevents stale Realtime responses from overwriting
+      const { data: fresh } = await supabase.from('daily_plans').select('*, daily_plan_tasks(*)').eq('user_id', userId).order('date', { ascending: false }).limit(60)
+      if (fresh) setPlans(fresh.map(p => ({ ...p, plan_tasks: p.daily_plan_tasks || [] })))
+
+      return plan
+    } finally {
+      savingRef.current = false
     }
-
-    const fullPlan = { ...plan, plan_tasks: pts || [] }
-    setPlans(p => {
-      const filtered = p.filter(x => x.date !== date)
-      return [fullPlan, ...filtered].sort((a, b) => b.date.localeCompare(a.date))
-    })
-    return fullPlan
   }
 
   const updatePlanTaskStatus = async (planTaskId, status) => {
